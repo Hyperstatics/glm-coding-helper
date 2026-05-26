@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GLM Coding Helper
 // @namespace    http://tampermonkey.net/
-// @version      8.6
+// @version      8.7
 // @description  GLM Coding Plan helper with local CAPTCHA OCR backend integration
 // @author       mumumi
 // @include      https://*bigmodel.cn/glm-coding*
@@ -28,14 +28,31 @@
     document.documentElement.dataset.glmHelper = '1';
  
     // ── 最早读配置（document-start 时还没有主流程）──────────────────────────
-    const _ec = (() => { try { return JSON.parse(GM_getValue('glm_coding_config_v5', '{}')); } catch { return {}; } })();
+    const EARLY_STORAGE_KEY = 'glm_coding_config_v5';
+    const SAFE_DEFAULTS_VERSION = 2;
+    const _ec = (() => { try { return JSON.parse(GM_getValue(EARLY_STORAGE_KEY, '{}')); } catch { return {}; } })();
+    if (_ec.SAFE_DEFAULTS_VERSION !== SAFE_DEFAULTS_VERSION) {
+        _ec.AUTO_CLOSE_INVALID = false;
+        _ec.SAFE_DEFAULTS_VERSION = SAFE_DEFAULTS_VERSION;
+        GM_setValue(EARLY_STORAGE_KEY, JSON.stringify(_ec));
+    }
+    const EARLY_AUTO_CLOSE_INVALID = _ec.AUTO_CLOSE_INVALID === true;
 
     const GLM_DISCOUNT_CODE = ['9G', 'XW', 'L9', 'KC', 'GZ'].join('');
     const GLM_CODING_URL = () => `https://www.bigmodel.cn/glm-coding?ic=${GLM_DISCOUNT_CODE}&closedialog=true`;
  
     // ── 限流页立即跳回主页 ────────────────────────────────────────────────────
-    if (location.href.includes('rate-limit.html')) {
+    if (location.href.includes('rate-limit.html') && EARLY_AUTO_CLOSE_INVALID) {
         location.replace(GLM_CODING_URL());
+        return;
+    }
+    if (location.href.includes('rate-limit.html')) {
+        window.addEventListener('DOMContentLoaded', () => {
+            const notice = document.createElement('div');
+            notice.textContent = 'GLM Coding Helper: auto-close is disabled. Handle this rate-limit page manually, or enable auto-close in the helper config.';
+            notice.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;padding:10px 16px;background:#d46b08;color:#fff;font:14px/1.5 system-ui,sans-serif';
+            document.body.appendChild(notice);
+        });
         return;
     }
  
@@ -623,6 +640,7 @@
                 CHECK_INTERVAL    : CFG.CHECK_INTERVAL,
                 AUTO_CLOSE_INVALID: panel.querySelector('#glm-aci').checked,
                 AUTO_CLICK_SUB    : panel.querySelector('#glm-acs').checked,
+                SAFE_DEFAULTS_VERSION,
             });
             ov.remove(); alert('已保存，即将刷新。'); location.reload();
         };
@@ -752,6 +770,11 @@
                 if (isAirplanePayDialog(rlw)) {
                     if (PS.result !== 'busy' && PS.result !== 'sold_out') {
                         setBar('⚠️ API返回200但弹窗显示小飞机（"购买人数较多"），可能是前后端不一致。不自动关闭，请手动确认后关闭弹窗，脚本会继续。', '#ff4d4f');
+                        return;
+                    }
+                    if (!CFG.AUTO_CLOSE_INVALID) {
+                        state = 'DONE';
+                        setBar('Auto-close is disabled. Please check this payment/rate-limit popup manually.', '#d46b08');
                         return;
                     }
                     closeModal(rlw);
