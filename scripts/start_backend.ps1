@@ -55,6 +55,28 @@ function Test-BackendMainPython {
     }
 }
 
+function Select-BackendMainPython {
+    param(
+        [string]$RequestedMode,
+        [string]$CpuPython,
+        [string]$GpuPython
+    )
+
+    if ($RequestedMode -eq "gpu") {
+        if ((Test-BackendMainPython $GpuPython)) { return $GpuPython }
+        throw "GPU backend environment is missing or incomplete: $GpuPython. Run one-click-start.cmd, or rebuild it with: powershell -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -Target gpu -Recreate"
+    }
+
+    if ($RequestedMode -eq "cpu" -or $RequestedMode -eq "cpu_parallel") {
+        if ((Test-BackendMainPython $CpuPython)) { return $CpuPython }
+        throw "CPU backend environment is missing or incomplete: $CpuPython. Run one-click-start.cmd, or rebuild it with: powershell -ExecutionPolicy Bypass -File scripts\bootstrap_windows.ps1 -Target cpu -Recreate"
+    }
+
+    if ((Test-BackendMainPython $GpuPython)) { return $GpuPython }
+    if ((Test-BackendMainPython $CpuPython)) { return $CpuPython }
+    throw "No usable backend environment found. Run one-click-start.cmd to install or repair the backend environment."
+}
+
 if (-not $env:CNCAPTCHA_CPU_OCR_PYTHON) {
     $CpuPython = Find-AncestorVenvPython -StartDir $Root -VenvName ".venv_paddle"
     if ($CpuPython) { $env:CNCAPTCHA_CPU_OCR_PYTHON = $CpuPython }
@@ -64,14 +86,10 @@ if (-not $env:CNCAPTCHA_GPU_OCR_PYTHON) {
     if ($GpuPython) { $env:CNCAPTCHA_GPU_OCR_PYTHON = $GpuPython }
 }
 
-$MainPython = ""
-if ((Test-BackendMainPython $env:CNCAPTCHA_CPU_OCR_PYTHON)) {
-    $MainPython = $env:CNCAPTCHA_CPU_OCR_PYTHON
-} elseif ((Test-BackendMainPython $env:CNCAPTCHA_GPU_OCR_PYTHON)) {
-    $MainPython = $env:CNCAPTCHA_GPU_OCR_PYTHON
-} else {
-    $MainPython = "python"
-}
+$MainPython = Select-BackendMainPython `
+    -RequestedMode $Mode `
+    -CpuPython $env:CNCAPTCHA_CPU_OCR_PYTHON `
+    -GpuPython $env:CNCAPTCHA_GPU_OCR_PYTHON
 
 $argsList = @("scripts\tools\start_backend.py", "--mode", $Mode, "--port", "$Port")
 if ($Headless) { $argsList += "--headless" }
@@ -84,4 +102,5 @@ if ($YoloDevice) {
     $argsList += $YoloDevice
 }
 
+Write-Host "Using backend Python: $MainPython"
 & $MainPython @argsList
