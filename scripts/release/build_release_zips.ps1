@@ -74,8 +74,6 @@ $CommonItems = @(
     "start-backend.cmd",
     "install-env.cmd",
     "one-click-start.cmd",
-    "启动后端.cmd",
-    "首次安装环境.cmd",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
@@ -84,6 +82,14 @@ $CommonItems = @(
     "scripts",
     "models"
 )
+
+$KnownRootCmdItems = @("start-backend.cmd", "install-env.cmd", "one-click-start.cmd")
+$ExtraRootCmdItems = Get-ChildItem -LiteralPath $Root -Filter "*.cmd" -File |
+    Where-Object { $KnownRootCmdItems -notcontains $_.Name } |
+    ForEach-Object { $_.Name }
+foreach ($item in $ExtraRootCmdItems) {
+    $CommonItems += $item
+}
 
 Write-Host "Building online installer package..."
 Copy-PackageItems -PackageDir $OnlineDir -Items $CommonItems

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         智谱 GLM Coding Plan 抢购助手 + 本地 OCR 自动验证码
 // @namespace    http://tampermonkey.net/
-// @version      8.15
+// @version      8.16
 // @description  GLM Coding Rush / 智谱 GLM Coding Plan 抢购助手，一键抢购油猴脚本 / Tampermonkey userscript，配合本地 CPU/GPU OCR 自动识别中文点选验证码并点击，支持多窗口并发、限流重试和支付页安全保护
 // @author       mumumi
 // @include      https://*bigmodel.cn/glm-coding*
@@ -543,7 +543,7 @@
                 GM_openInTab(url, { active: false, insert: true, setParent: true });
             }, i * 300);
         }
-        alert(`✅ 已打开 ${n} 个标签页！\n\n� 多窗口抢购流程：\n1. 每个窗口自动解验证码（不点确定）\n2. 等待到 10:00:00 + 错开时间\n3. 自动点击确认发送请求\n\n💡 窗口0最先点，之后每个错开2秒`);
+        alert(`✅ 已打开 ${n} 个标签页！\n\n多窗口抢购流程：\n1. 每个窗口自动解验证码（不点确定）\n2. 等待到 10:00:00 + 错开时间\n3. 自动点击确认发送请求\n\n💡 窗口0最先点，之后每个错开2秒`);
     }
     // ── 扫描队列（过滤今日已确认售罄）────────────────────────────────────────
     const tabs      = String(CFG.TABS_PRIORITY).split(',').map(Number).filter(Boolean);
