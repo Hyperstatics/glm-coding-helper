@@ -150,6 +150,8 @@ https://www.bigmodel.cn/glm-coding
 
 油猴菜单里可以打开配置面板、一键多开窗口、清除今日套餐状态缓存。
 
+交流群https://t.me/+s1flX6cpUZ1kM2M1
+
 ## 配置面板
 
 在 Tampermonkey 菜单中选择：
