@@ -9,6 +9,13 @@
   - 修复 `tabEl` 1-index → 0-index BUG（原来 `tabEl(1)` 拿到第二个 tab）
   - 修复 `findAndClickConfirm` 误点支付按钮（移除 `.pay-dialog button.el-button--primary` 等选择器）
   - 削弱"绝对安全锁"：`everSucceeded && PS.bizId` 替代纯 `everSucceeded`，允许 stale 成功后清理
+- 合并 PR #10（danny0119 提交）：新增 `backend/` FastAPI 并发流水线后端
+  - YOLO detector + PP-OCRv5 recognizer 两段流水线，按 CPU 核数自动分配 worker
+  - 每个 worker 独立进程，绑定物理核心消除 GIL 争抢（Linux 生效，Windows 是 no-op）
+  - `python backend/server.py` 启动，3-level mp.Queue 传递裁切结果
+  - `/health` 端点区分 starting/ok + ready_workers/alive_workers 计数
+  - 冷启动 24s → 7.6s → 2.6s（16-core SSD，磁盘预热 + non-blocking lifespan）
+  - ⚠️ 此为可选后端，原 `scripts/tools/` 启动方式仍可用
 
 ## 2026-06-06
 
