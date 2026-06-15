@@ -41,6 +41,11 @@
   - v8.21 的 `jitterDelay()` 顶层 `function` 在某些浏览器/Tampermonkey 缓存场景下闭包内报 `ReferenceError: jitterDelay is not defined`，导致 `handleCaptchaDirectInPage` 抛异常 → `captchaSent = false` → `setInterval(checkCaptchaPrompt, 50)` 每 50ms 重发一次验证码
   - **inline 抖动逻辑到调用点**，去掉 helper 依赖。同时给数字字段加了 `Number(...) || 默认值` 兜底，防止配置污染产生 NaN 导致 `setTimeout(NaN)` 立即触发
   - 现象：`ReferenceError: jitterDelay is not defined` + captcha 弹窗上一个 marker 被反复点到 `(-9992,-10029)` 这种坏坐标
+- v8.21.3：**根因修复死循环**（v8.21.2 只修了表层 jitterDelay 引用错误，实际还残留 CFG undefined）。
+  - 真正根因：v8.21 在 captcha IIFE 内（line 1812）直接引用了 `CFG.CAPTCHA_CLICK_DELAY`，但 captcha IIFE 是独立闭包，没有 `CFG` 变量。后端响应成功 → 走到 click loop → `Number(CFG.CAPTCHA_CLICK_DELAY)` 抛 `ReferenceError: CFG is not defined` → catch 块重置 `captchaSent=false; lastCaptchaText=''` → 下一 50ms tick 把同一张图重新发给后端，无限循环
+  - **不再在 captcha IIFE 内引用 `CFG`**，改在 IIFE 顶部通过 `GM_getValue('glm_coding_config_v5')` 读 `CAPTCHA_CLICK_DELAY` / `RL_RETRY_DELAY`（主 IIFE 配置面板写入的同一个 key），预计算 `_clickDelay` / `_rlDelay` 常量
+  - 错误处理从"立即重置"改为"30 秒冷却"：catch 块设 `window.__glmCaptchaCooldownUntil = Date.now() + 30000`，`checkCaptchaPrompt` 起手检查冷却中直接 return。即使后续真的出现其它异常，30 秒内同一张图不会再重发
+  - 现象：用户 console 报 `ReferenceError: CFG is not defined at handleCaptchaDirectInPage (...:1812:35)`，同一张验证码被反复 POST 到 `/captcha_direct`
 
 ## 2026-06-06
 

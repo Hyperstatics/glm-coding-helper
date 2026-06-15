@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         智谱 GLM Coding Plan 抢购助手 + 本地 OCR 自动验证码
 // @namespace    http://tampermonkey.net/
-// @version      8.21.1
+// @version      8.21.3
 // @description  GLM Coding Rush / 智谱 GLM Coding Plan 抢购助手，一键抢购油猴脚本 / Tampermonkey userscript，配合本地 CPU/GPU OCR 自动识别中文点选验证码并点击，支持多窗口并发、限流重试和支付页安全保护
 // @author       mumumi
 // @include      https://*bigmodel.cn/glm-coding*
@@ -1247,6 +1247,13 @@
             return { AUTO_CAPTCHA_CLICK: true, AUTO_CAPTCHA_CONFIRM: false };
         }
     })();
+    // v8.21.3: captcha IIFE 没有 CFG 闭包，必须走 CAPTCHA_CFG 拿点击/重试间隔
+    const _ccd = Number(CAPTCHA_CFG.CAPTCHA_CLICK_DELAY) || 220;
+    const _cdDelta = _ccd * 0.2;
+    const _clickDelay = Math.max(1, Math.round(_ccd + (Math.random() * 2 - 1) * _cdDelta));
+    const _rld = Number(CAPTCHA_CFG.RL_RETRY_DELAY) || 1000;
+    const _rldDelta = _rld * 0.2;
+    const _rlDelay = Math.max(1, Math.round(_rld + (Math.random() * 2 - 1) * _rldDelta));
     function getWindowIndex() {
         const params = new URLSearchParams(location.search);
         return parseInt(params.get('wi') || '0', 10);
@@ -1798,6 +1805,8 @@
             if (!result || !result.success || !Array.isArray(result.click_coords)) {
                 throw new Error('bad direct result: ' + JSON.stringify(resp).substring(0, 180));
             }
+            // v8.21.2: 成功后锁定 30 秒，期间同一张图不再重发（即使 catch 被异常触发）
+            window.__glmSentLockUntil = Date.now() + 30000;
             var rect = bgEl.getBoundingClientRect();
             console.log('[captcha-direct-page] click result:', JSON.stringify(result).substring(0, 260));
             for (var i = 0; i < result.click_coords.length; i++) {
@@ -1808,9 +1817,6 @@
                 if (!Number.isFinite(ny) && Number.isFinite(Number(c.rel_y))) ny = Number(c.rel_y) / rect.height;
                 if (!Number.isFinite(nx) || !Number.isFinite(ny)) continue;
                 dispatchClickAt(bgEl, nx * rect.width, ny * rect.height, c.char || String(i + 1));
-                var _ccd = Number(CFG.CAPTCHA_CLICK_DELAY) || 220;
-                var _cdDelta = _ccd * 0.2;
-                var _clickDelay = Math.max(1, Math.round(_ccd + (Math.random() * 2 - 1) * _cdDelta));
                 await new Promise(function(r) { setTimeout(r, _clickDelay); });
             }
             await new Promise(function(r) { setTimeout(r, 350); });
@@ -1834,14 +1840,17 @@
             }
         } catch (e) {
             console.error('[captcha-direct-page] error:', e);
-            captchaSent = false;
-            lastCaptchaText = '';
+            // v8.21.3: 出错时不再立即重置 captchaSent，避免 50ms tick 死循环。
+            // 改为加 30s 冷却：期间相同 prompt 不再重发；prompt 变化时 checkCaptchaPrompt 自然会重置。
+            window.__glmCaptchaCooldownUntil = Date.now() + 30000;
         } finally {
             rushState = 'idle';
         }
     }
     async function checkCaptchaPrompt() {
         if (rushState === 'solving') return;
+        // v8.21.3: 出错后 30s 冷却，期间不再触发 handleCaptchaDirectInPage
+        if (window.__glmCaptchaCooldownUntil && Date.now() < window.__glmCaptchaCooldownUntil) return;
         var found = findCaptchaPromptElement();
         if (!found) { captchaSent = false; return; }
         var payloadText = found.chars.join('');
