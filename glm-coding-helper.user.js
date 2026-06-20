@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         智谱 GLM Coding Plan 抢购助手 + 本地 OCR 自动验证码
 // @namespace    http://tampermonkey.net/
-// @version      22.6
+// @version      22.7
 // @description  GLM Coding Rush / 智谱 GLM Coding Plan 抢购助手，一键抢购油猴脚本 / Tampermonkey userscript，配合本地 CPU/GPU OCR 自动识别中文点选验证码并点击，支持多窗口并发、限流重试和支付页安全保护
 // @author       mumumi
 // @include      https://*bigmodel.cn/glm-coding*
@@ -535,6 +535,8 @@
         RUSH_TARGET_SEC     : 0,
         RUSH_HOLD_WINDOW_MS : 10000,
         RUSH_RELEASE_ADVANCE_MS: 0,
+        HOTKEY_PAUSE: 'F8',
+        HOTKEY_AUTO_CLICK_SUB: 'F9',
     };
     function loadCfg() { try { const s = GM_getValue(STORAGE_KEY, null); return s ? { ...DEF, ...JSON.parse(s) } : { ...DEF }; } catch { return { ...DEF }; } }
     function saveCfg(c) { GM_setValue(STORAGE_KEY, JSON.stringify(c)); }
@@ -599,8 +601,63 @@
     GM_registerMenuCommand('⚙️ 打开配置面板', openConfigPanel);
     GM_registerMenuCommand('🗑️ 清除今日套餐状态缓存', () => { localStorage.removeItem(_dsKey); alert('今日状态已清除，即将刷新。'); location.reload(); });
     GM_registerMenuCommand('🚀 一键多开窗口', openMultipleWindows);
-    GM_registerMenuCommand('⏯️ 暂停/恢复脚本 (Alt+Shift+P)', toggleRuntimePause);
-    GM_registerMenuCommand('🖱️ 切换自动点击订阅 (Alt+Shift+A)', toggleAutoClickSub);
+    function normalizeHotkeyString(value, fallback = '') {
+        const raw = String(value || '').trim();
+        if (!raw) return fallback;
+        const aliases = {
+            esc: 'Escape',
+            escape: 'Escape',
+            ins: 'Insert',
+            insert: 'Insert',
+            del: 'Delete',
+            delete: 'Delete',
+            space: 'Space',
+            ' ': 'Space',
+            pause: 'Pause',
+            home: 'Home',
+            end: 'End',
+            pgup: 'PageUp',
+            pageup: 'PageUp',
+            pgdn: 'PageDown',
+            pagedown: 'PageDown',
+        };
+        const parts = raw.split('+').map(s => s.trim()).filter(Boolean);
+        const mods = [];
+        let key = '';
+        for (const part of parts) {
+            const lower = part.toLowerCase();
+            if (lower === 'ctrl' || lower === 'control') { if (!mods.includes('Ctrl')) mods.push('Ctrl'); continue; }
+            if (lower === 'alt') { if (!mods.includes('Alt')) mods.push('Alt'); continue; }
+            if (lower === 'shift') { if (!mods.includes('Shift')) mods.push('Shift'); continue; }
+            if (lower === 'meta' || lower === 'cmd' || lower === 'win') { if (!mods.includes('Meta')) mods.push('Meta'); continue; }
+            if (/^f([1-9]|1[0-2])$/i.test(part)) key = part.toUpperCase();
+            else if (aliases[lower]) key = aliases[lower];
+            else if (part.length === 1) key = part.toUpperCase();
+            else key = part;
+        }
+        if (!key) return fallback;
+        return [...mods, key].join('+');
+    }
+    function hotkeyFromEvent(e) {
+        const mods = [];
+        if (e.ctrlKey) mods.push('Ctrl');
+        if (e.altKey) mods.push('Alt');
+        if (e.shiftKey) mods.push('Shift');
+        if (e.metaKey) mods.push('Meta');
+        let key = e.key || '';
+        if (!key || ['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return '';
+        if (key === ' ') key = 'Space';
+        if (/^f([1-9]|1[0-2])$/i.test(key)) key = key.toUpperCase();
+        else if (key.length === 1) key = key.toUpperCase();
+        return [...mods, key].join('+');
+    }
+    function hotkeyMatches(e, hotkey) {
+        return normalizeHotkeyString(hotkey) === hotkeyFromEvent(e);
+    }
+    const pauseHotkey = () => normalizeHotkeyString(CFG.HOTKEY_PAUSE, 'F8');
+    const autoClickSubHotkey = () => normalizeHotkeyString(CFG.HOTKEY_AUTO_CLICK_SUB, 'F9');
+    GM_registerMenuCommand(`⏯️ 暂停/恢复脚本 (${pauseHotkey()})`, toggleRuntimePause);
+    GM_registerMenuCommand(`🖱️ 切换自动点击订阅 (${autoClickSubHotkey()})`, toggleAutoClickSub);
     function saveRuntimeCfgPatch(patch) {
         Object.assign(CFG, patch);
         saveCfg({ ...CFG });
@@ -609,7 +666,7 @@
         runtimePaused = paused === true;
         GM_setValue(RUNTIME_PAUSE_KEY, runtimePaused);
         if (runtimePaused) {
-            setBar(`⏸️ 脚本已暂停（${source}）。Alt+Shift+P 恢复。`, '#722ed1');
+            setBar(`⏸️ 脚本已暂停（${source}）。${pauseHotkey()} 恢复。`, '#722ed1');
         } else {
             setBar(`▶️ 脚本已恢复（${source}）。`, '#237804');
         }
@@ -620,7 +677,7 @@
     function toggleAutoClickSub() {
         const next = !CFG.AUTO_CLICK_SUB;
         saveRuntimeCfgPatch({ AUTO_CLICK_SUB: next });
-        setBar(`${next ? '✅ 已开启' : '🛑 已关闭'}自动点击订阅（Alt+Shift+A）`, next ? '#237804' : '#d46b08');
+        setBar(`${next ? '✅ 已开启' : '🛑 已关闭'}自动点击订阅（${autoClickSubHotkey()}）`, next ? '#237804' : '#d46b08');
     }
     function isEditableHotkeyTarget(el) {
         if (!el) return false;
@@ -628,15 +685,13 @@
         return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
     }
     function handleControlHotkeys(e) {
-        if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return false;
         if (isEditableHotkeyTarget(e.target)) return false;
-        const key = String(e.key || '').toLowerCase();
-        if (key === 'p') {
+        if (hotkeyMatches(e, pauseHotkey())) {
             e.preventDefault();
             toggleRuntimePause();
             return true;
         }
-        if (key === 'a') {
+        if (hotkeyMatches(e, autoClickSubHotkey())) {
             e.preventDefault();
             toggleAutoClickSub();
             return true;
@@ -1024,6 +1079,20 @@
                     <span style="font-size:14px;color:#888">:</span>
                     <input type="number" id="glm-rs" value="${CFG.RUSH_TARGET_SEC}" min="0" max="59" style="width:52px;padding:3px 6px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;text-align:center">
                 </div>
+                <div style="border-top:1px dashed #eee;padding-top:12px;margin-top:4px"></div>
+                <div style="padding-left:26px;display:flex;flex-direction:column;gap:8px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span style="font-size:13px;color:#666">快捷键</span>
+                        <span title="默认使用外挂工具常见的单键 F8/F9，避开浏览器常见快捷键。点输入框后直接按想设置的键；在输入框、文本框、下拉框和可编辑区域内不会触发快捷键。" style="cursor:help;color:#999;font-size:14px;border:1px solid #ccc;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;line-height:1">?</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center">
+                        <span style="font-size:13px;color:#888">暂停/恢复</span>
+                        <input id="glm-hk-pause" value="${pauseHotkey()}" readonly style="width:120px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;text-align:center;background:#fafafa;cursor:pointer">
+                        <span style="font-size:13px;color:#888">自动点击订阅</span>
+                        <input id="glm-hk-sub" value="${autoClickSubHotkey()}" readonly style="width:120px;padding:5px 8px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px;text-align:center;background:#fafafa;cursor:pointer">
+                    </div>
+                    <div style="font-size:12px;color:#999">推荐：F8/F9、Insert/Home/End。避免 F5/F11/F12、Ctrl/Alt 组合和输入法快捷键。</div>
+                </div>
             </div>
             <div style="display:flex;justify-content:space-between;gap:10px">
                 <button id="glm-multi" style="padding:8px 16px;border:1px solid #52c41a;background:#f6ffed;color:#52c41a;border-radius:6px;cursor:pointer;font-weight:600">🚀 一键多开</button>
@@ -1036,6 +1105,18 @@
         document.body.appendChild(ov);
         const getPkgs = buildTransferBox(document.getElementById('glm-wp'), PKGS_MAP, CFG.PACKAGES_PRIORITY, '套餐优先级');
         const getTabs = buildTransferBox(document.getElementById('glm-wt'), TABS_MAP, CFG.TABS_PRIORITY, '订阅周期优先级');
+        function bindHotkeyInput(input) {
+            input.title = '点击后按键录入';
+            input.addEventListener('keydown', e => {
+                e.preventDefault();
+                e.stopPropagation();
+                const hk = hotkeyFromEvent(e);
+                if (hk) input.value = hk;
+            });
+            input.addEventListener('focus', () => input.select());
+        }
+        bindHotkeyInput(panel.querySelector('#glm-hk-pause'));
+        bindHotkeyInput(panel.querySelector('#glm-hk-sub'));
         panel.querySelector('#glm-cc').onclick = () => ov.remove();
         panel.querySelector('#glm-multi').onclick = () => { openMultipleWindows(); };
         panel.querySelector('#glm-cs').onclick = () => {
@@ -1060,6 +1141,8 @@
                 RUSH_TARGET_MIN: parseInt(panel.querySelector('#glm-rm').value, 10),
                 RUSH_TARGET_SEC: parseInt(panel.querySelector('#glm-rs').value, 10),
                 RUSH_RELEASE_ADVANCE_MS: CFG.RUSH_RELEASE_ADVANCE_MS,
+                HOTKEY_PAUSE: normalizeHotkeyString(panel.querySelector('#glm-hk-pause').value, 'F8'),
+                HOTKEY_AUTO_CLICK_SUB: normalizeHotkeyString(panel.querySelector('#glm-hk-sub').value, 'F9'),
                 SAFE_DEFAULTS_VERSION,
             });
             ov.remove(); alert('已保存，即将刷新。'); location.reload();
@@ -1072,7 +1155,7 @@
     function tick() {
         if (state === 'DONE') return;
         if (runtimePaused) {
-            setBar('⏸️ 脚本已暂停。Alt+Shift+P 恢复。', '#722ed1');
+            setBar(`⏸️ 脚本已暂停。${pauseHotkey()} 恢复。`, '#722ed1');
             return;
         }
         if (window.__glmRushConfirmed && window.__glmRushDialogSeen && !getPayDialog()) {
