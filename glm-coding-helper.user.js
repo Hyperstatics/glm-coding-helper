@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         智谱 GLM Coding Plan 抢购助手 + 本地 OCR 自动验证码
 // @namespace    http://tampermonkey.net/
-// @version      23.0
+// @version      23.1
 // @description  GLM Coding Rush / 智谱 GLM Coding Plan 抢购助手，一键抢购油猴脚本 / Tampermonkey userscript，配合本地 CPU/GPU OCR 自动识别中文点选验证码并点击，支持多窗口并发、限流重试和支付页安全保护
 // @author       mumumi
 // @include      https://*bigmodel.cn/glm-coding*
@@ -32,7 +32,7 @@
 // ==/UserScript==
 (function () {
     'use strict';
-    const SCRIPT_VERSION = '23.0';
+    const SCRIPT_VERSION = '23.1';
     const BOOT_BAR_ID = 'glm-helper-status-bar';
     const __glmHost = (() => { try { return location.hostname || ''; } catch { return ''; } })();
     const __inMiniMax = __glmHost === 'platform.minimaxi.com';
@@ -1321,7 +1321,6 @@
             }
             const rushReached = isRushTargetReached();
             if (!CFG.AUTO_CLICK_SUB && !rushReached) {
-                showPayAlarm();
                 if (CFG.RUSH_ENABLED) {
                     const remaining = Math.max(0, getRushRemainingMs());
                     setBar(`🎯 <b>发现可购！${TABS_MAP[tab]} · ${PKGS_MAP[pkg]}</b>，冲刺模式等待目标时间 <b>${fmt(remaining)}</b>；也可按 ${autoClickSubHotkey()} 手动开启自动点击`, '#722ed1');
