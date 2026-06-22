@@ -114,7 +114,7 @@ def _read_proc_stdout(proc: subprocess.Popen):
             pass
 
 
-def _http_get_json(path: str, timeout: float = 1.0):
+def _http_get_json(path: str, timeout: float = 3.0):
     try:
         with urllib.request.urlopen(BACKEND_URL + path, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))

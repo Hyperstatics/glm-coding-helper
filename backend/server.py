@@ -374,6 +374,15 @@ def result_listener_thread():
                 "req_id": req_id,
             }
         _recent_results.append(snapshot)
+        # 打印识别摘要到 stdout（GUI 日志框 / 控制台可见）
+        if res.get("success"):
+            p = "".join(res.get("prompt", []))
+            pred = res.get("pred_text", "")
+            print(f"[captcha] {''.join(p)} -> {pred} | conf={res.get('confidence', 0):.2f} "
+                  f"total={res.get('elapsed_ms', 0):.0f}ms yolo={res.get('yolo_ms', 0):.0f}ms "
+                  f"ocr={res.get('ocr_ms', 0):.0f}ms | req={req_id}", flush=True)
+        else:
+            print(f"[captcha] FAIL req={req_id}: {res.get('error', 'unknown')}", flush=True)
         if future and not future.done():
             future.get_loop().call_soon_threadsafe(future.set_result, res)
 
