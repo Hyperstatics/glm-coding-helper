@@ -205,62 +205,43 @@ https://www.bigmodel.cn/glm-coding
 
 1. 油猴脚本直接从腾讯验证码组件中抓取原图。
 2. 原图发送到本地后端 `/captcha_direct`。
-3. 后端使用本地 YOLO + PaddleOCR 识别。
+3. 后端使用本地 YOLO + PP-OCRv6（tiny 主路径，medium 兜底）识别。
 4. 脚本按识别坐标点击文字。
 
-验证码图片不会上传到第三方识别服务。
+验证码图片不会上传到第三方识别服务。OCR 默认走 **PP-OCRv6_tiny_rec**（约 110ms/张，379 张真实验证码准确率 100%），识别结果不一致时自动 fallback 到 PP-OCRv6_medium_rec；模型可通过 `config.json` 的 `ocr_model` 或环境变量 `CNCAPTCHA_CPU_OCR_MODEL` / `GLM_OCR_MODEL` 覆盖。
 
-### 并发流水线架构（Lite 版）
+### 启动后端
 
-`backend/` 目录提供了一种可选的并发流水线后端，通过多进程流水线提升 CPU 多核利用率：
-
-- **YOLO → OCR 两段流水线**：YOLO worker 检测字符位置、裁切 → OCR worker 识别单个文字
-- **按 CPU 核数自动分配 YOLO/OCR worker**（可通过 `config.json` 手动调整）
-- 每个 worker 绑定独立物理核心，消除 GIL 争抢
-- 队列传递裁剪结果，零序列化开销
-
-启动（任选其一）：
-
-```powershell
-# 方式 1：双击 start-backend-pipeline-gui.cmd（推荐 Windows 用户，弹 GUI 窗口）
-# 方式 2：命令行手动
-pwsh start-backend-pipeline-gui.ps1
-# 方式 3：直接跑后端
-python backend/server.py
-```
-
-macOS 日常启动请双击 `start-backend-pipeline-gui.command`，首次安装请双击 `one-click-start.command`。
-
-Windows 双击启动器会自动检测 venv（`venv/` 或 `.venv_paddle/`）、检查依赖（fastapi/uvicorn/psutil）、缺失时自动 pip install；如果发现旧包复制出来的外来 venv，会提示先运行 `one-click-start.cmd` 在本机重建。端口被占用时会显示中文提示（含 PID/进程名/命令行），杀进程前需用户确认。
-
-### 可视化 GUI 启动器
-
-如果想在窗口里实时看后端状态（worker 就绪进度、最近识别结果、stdout 日志），用 GUI 启动器：
+Windows 主路径（推荐）：
 
 ```text
-start-backend-pipeline-gui.cmd
+one-click-start.cmd   ← 首次自动安装 CPU 环境（清华 PyPI 镜像），之后启动后端 + Tk GUI
 ```
 
-`backend/gui.py` 会拉起 `backend.server` 子进程并接管其 stdout，弹出 Tk 窗口：
+启动后会弹出 Tk 窗口（`scripts/tools/captcha_server.py`），实时显示：
 
-- **顶部状态栏**：系统状态（启动中 / 运行中）、YOLO/OCR worker 数、监听地址
-- **中间识别列表**：最近 20 条识别结果（提示字、预测字、置信度、yolo/ocr 耗时）
-- **底部日志框**：后端 stdout 实时滚动，`worker ready` / `[architect]` / 错误高亮
+- **系统状态 / 识别模型**：当前 OCR 模式与模型（hybrid | 主 v6_tiny → 兜底 v6_medium）
+- **当前提示 / 识别结果**：本次验证码的 prompt 与识别输出、置信度
+- **日志框**：`[captcha] 城匙称 -> 称匙城 | conf=1.00 end-to-end=312ms (yolo=120ms ocr=165ms)` 实时滚动
 
-关闭窗口时 GUI 会自动 `terminate` 后端子进程，不用手动到任务管理器杀。
+`one-click-start.cmd` 会自动检测/创建 `.venv_paddle`、检查依赖、缺失时自动 pip install；端口被占用时会显示中文提示（含 PID/进程名/命令行），杀进程前需用户确认。
+
+另有 `start-backend-pipeline-gui.cmd`（`backend/` 目录的 FastAPI 多进程流水线 + 另一个 Tk GUI），是早期可选方案，功能等价但架构不同，普通用户用 `one-click-start.cmd` 即可。
+
+macOS 日常启动请双击 `start-backend-pipeline-gui.command`，首次安装请双击 `one-click-start.command`。
 
 ## 常用文件
 
 | 文件 | 用途 |
 | --- | --- |
 | `glm-coding-helper.user.js` | 给 Tampermonkey 安装的主脚本 |
-| `one-click-start.cmd` | 首次安装环境（CPU 依赖） |
-| `start-backend-pipeline-gui.cmd` | 日常启动 pipeline 后端 + 弹 Tk 可视化窗口 |
+| `one-click-start.cmd` | 首次安装 CPU 环境 + 启动后端 + Tk GUI（Windows 主入口） |
+| `start-backend-pipeline-gui.cmd` | 可选：启动 backend/ FastAPI 多进程流水线 + Tk 窗口 |
 | `one-click-start.command` | macOS 首次安装 CPU 环境并启动后端 |
-| `start-backend-pipeline-gui.command` | macOS 日常启动 pipeline 后端 + Tk 窗口 |
+| `start-backend-pipeline-gui.command` | macOS 日常启动后端 + Tk 窗口 |
 | `docs/macos-setup.md` | macOS 中文安装、限制与验证说明 |
-| `scripts/` | 后端和打包脚本 |
-| `backend/` | Pipeline 后端（FastAPI + 多进程 YOLO→OCR） |
+| `scripts/tools/captcha_server.py` | `one-click-start` 实际启动的后端（HTTP + Tk GUI） |
+| `backend/` | 可选的 FastAPI 多进程流水线后端 |
 | `models/` | 本地识别模型 |
 
 ## 常用启动方式
