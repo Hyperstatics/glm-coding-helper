@@ -617,6 +617,41 @@
     // 暴露到全局，可在 DevTools console 调用 dumpEventLog() / clearEventLog()
     try { unsafeWindow.dumpEventLog = () => { const t = exportEventLog(); console.log(t || '(empty)'); return t; }; } catch {}
     try { unsafeWindow.clearEventLog = clearEventLog; } catch {}
+    // ── F7 事件日志弹窗（无需打开 DevTools）────────────────────────
+    function showEventLogModal() {
+        var existing = document.getElementById('glm-event-log-modal');
+        if (existing) { existing.remove(); return; }
+        var text = exportEventLog() || '(empty)';
+        var overlay = document.createElement('div');
+        overlay.id = 'glm-event-log-modal';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:2147483646;display:flex;align-items:center;justify-content:center';
+        var card = document.createElement('div');
+        card.style.cssText = 'background:#1e1e1e;color:#d4d4d4;width:700px;max-width:90vw;max-height:85vh;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;font:13px/1.5 monospace';
+        var hdr = document.createElement('div');
+        hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#2d2d2d;border-bottom:1px solid #444';
+        var lbl = document.createElement('span');
+        lbl.style.cssText = 'font-weight:600;color:#ccc';
+        lbl.textContent = '📋 事件日志 (F7 关闭)';
+        hdr.appendChild(lbl);
+        var btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:8px';
+        var btnCopy = document.createElement('button'); btnCopy.style.cssText = 'background:#3a3a3a;color:#ccc;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px'; btnCopy.textContent = '📋 复制';
+        var btnClear = document.createElement('button'); btnClear.style.cssText = 'background:#3a3a3a;color:#ccc;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px'; btnClear.textContent = '🗑 清空';
+        var btnClose = document.createElement('button'); btnClose.style.cssText = 'background:#3a3a3a;color:#ccc;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px'; btnClose.textContent = '✕';
+        btnRow.appendChild(btnCopy); btnRow.appendChild(btnClear); btnRow.appendChild(btnClose);
+        hdr.appendChild(btnRow);
+        card.appendChild(hdr);
+        var pre = document.createElement('pre');
+        pre.style.cssText = 'margin:0;padding:12px 16px;overflow-y:auto;flex:1;white-space:pre-wrap;word-break:break-all';
+        pre.textContent = text;
+        card.appendChild(pre);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        btnCopy.onclick = function () { navigator.clipboard.writeText(text).then(function () { btnCopy.textContent = '✅ 已复制'; }); };
+        btnClear.onclick = function () { clearEventLog(); pre.textContent = '(cleared)'; };
+        btnClose.onclick = function () { overlay.remove(); };
+        overlay.onclick = function (e) { if (e.target === overlay) overlay.remove(); };
+    }
     const TABS_MAP    = { 1: '连续包月', 2: '连续包季', 3: '连续包年' };
     const PKGS_MAP    = { 1: 'Lite',    2: 'Pro',      3: 'Max'      };
     const DEF = {
@@ -838,6 +873,11 @@
                 closePayDialog();
                 console.log('[GLM] ESC 关闭支付弹窗');
             }
+        }
+        // ── F7: 弹出事件日志窗口 ───────────────────────────────────
+        if (e.key === 'F7' || e.keyCode === 118) {
+            e.preventDefault();
+            showEventLogModal();
         } else if (e.key === 'Enter' || e.keyCode === 13 || e.key === ' ') {
             e.preventDefault();
             var confirmBtn = document.querySelector('.tencent-captcha-dy__verify-confirm-btn');
