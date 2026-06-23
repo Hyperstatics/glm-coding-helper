@@ -25,6 +25,10 @@ else:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# ── 日 志 ───────────────────────────────────────────────
+from backend.logging_config import setup_logging  # noqa: E402
+setup_logging("gui")
+
 # ── 配置 ───────────────────────────────────────────────
 BACKEND_HOST = "127.0.0.1"
 BACKEND_PORT = int(os.environ.get("CNCAPTCHA_PORT", "8888"))

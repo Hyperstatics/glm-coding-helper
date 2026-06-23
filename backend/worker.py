@@ -28,6 +28,10 @@ from backend.evaluate import select_fixed3
 
 
 def run_yolo_worker(core_id: int, req_queue, ocr_queue, ready_queue):
+    # ── 日 志 ──────────────────────────────────────────────
+    from backend.logging_config import setup_logging
+    setup_logging(f"yolo{core_id}")
+
     # 绑定物理核
     try:
         p = psutil.Process()

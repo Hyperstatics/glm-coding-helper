@@ -32,6 +32,10 @@ else:
 if str(ROOT) not in os.sys.path:
     os.sys.path.insert(0, str(ROOT))
 
+# ── 日 志：tee stdout → 文件  ────────────────────────────────
+from backend.logging_config import setup_logging  # noqa: E402
+setup_logging()
+
 # ── 加载 config.json（支持可配置 worker 数）─────────────────
 CONFIG_PATH = ROOT / "config.json"
 

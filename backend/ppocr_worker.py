@@ -183,6 +183,10 @@ def assign_prompt_globally(rows: list[dict], prompt: list[str]) -> list[dict]:
 
 
 def run_ocr_worker_direct(core_id: int, req_queue, res_queue, ready_queue):
+    # ── 日 志 ──────────────────────────────────────────────
+    from backend.logging_config import setup_logging
+    setup_logging(f"ocr{core_id}")
+
     # 绑定物理核
     try:
         p = psutil.Process()
