@@ -353,7 +353,8 @@
     const SAFE_DEFAULTS_VERSION = 4;
     const _ec = (() => { try { return JSON.parse(GM_getValue(EARLY_STORAGE_KEY, '{}')); } catch { return {}; } })();
     if (_ec.SAFE_DEFAULTS_VERSION !== SAFE_DEFAULTS_VERSION) {
-        _ec.AUTO_CLOSE_INVALID = false;
+        _ec.AUTO_CLOSE_RATE_LIMIT = false;
+        _ec.AUTO_CLOSE_INVALID_PAY = false;
         _ec.AUTO_CLICK_SUB = false;
         const oldRushTarget = (_ec.RUSH_TARGET_HOUR == null && _ec.RUSH_TARGET_MIN == null && _ec.RUSH_TARGET_SEC == null) ||
             (Number(_ec.RUSH_TARGET_HOUR) === 9 && Number(_ec.RUSH_TARGET_MIN) === 59 && Number(_ec.RUSH_TARGET_SEC) === 58);
@@ -368,7 +369,7 @@
         _ec.SAFE_DEFAULTS_VERSION = SAFE_DEFAULTS_VERSION;
         GM_setValue(EARLY_STORAGE_KEY, JSON.stringify(_ec));
     }
-    const EARLY_AUTO_CLOSE_INVALID = _ec.AUTO_CLOSE_INVALID === true;
+    const EARLY_AUTO_CLOSE_RATE_LIMIT = _ec.AUTO_CLOSE_RATE_LIMIT === true;
     const GLM_DISCOUNT_CODE = ['9G', 'XW', 'L9', 'KC', 'GZ'].join('');
     const GLM_CODING_URL = () => `https://www.bigmodel.cn/glm-coding?ic=${GLM_DISCOUNT_CODE}&closedialog=true`;
     function ensureDiscountEntry() {
@@ -406,7 +407,7 @@
     }
     // ── 限流页立即跳回主页 ────────────────────────────────────────────────────
     if (!location.href.includes('rate-limit.html') && ensureDiscountEntry()) return;
-    if (location.href.includes('rate-limit.html') && EARLY_AUTO_CLOSE_INVALID) {
+    if (location.href.includes('rate-limit.html') && EARLY_AUTO_CLOSE_RATE_LIMIT) {
         location.replace(GLM_CODING_URL());
         return;
     }
@@ -496,9 +497,11 @@
                     PS.payAmount = d.data.payAmount;
                     PS.inProgress = false;
                     everSucceeded = true;
+                    logEvent('preview_ok', { bizId: d.data.bizId, payAmount: d.data.payAmount });
                     return new Response(txt, { status: 200, headers: { 'Content-Type': 'application/json' } });
                 } else if (d?.code === 555 || (d?.code >= 500 && d?.code !== 200)) {
                     console.log(`[GLM v8.9] preview 错误 code:${d?.code} msg:${d?.msg}，脚本将自动重试`);
+                    logEvent('preview_busy', { code: d?.code, msg: d?.msg });
                     PS.result = 'busy';
                     PS.rawCode = d?.code;
                     PS.inProgress = false;
@@ -508,11 +511,13 @@
                     );
                 } else if (d?.code === 200 && d?.data?.soldOut === true) {
                     console.log('[GLM v8.9] preview返回200+soldOut，原样透传，脚本记录sold_out');
+                    logEvent('preview_sold_out', { bizId: d?.data?.bizId, payAmount: d?.data?.payAmount });
                     PS.result = 'sold_out';
                     PS.inProgress = false;
                     return new Response(txt, { status: r.status, headers: { 'Content-Type': 'application/json' } });
                 } else {
                     console.log('[GLM v8.9] preview 非预期错误 code:', d?.code, 'msg:', d?.msg, '→ 标记busy');
+                    logEvent('preview_unknown', { code: d?.code, msg: d?.msg });
                     PS.result = 'busy';
                     PS.rawCode = d?.code;
                     PS.inProgress = false;
@@ -593,6 +598,25 @@
     // ── 配置 ──────────────────────────────────────────────────────────────────
     const STORAGE_KEY = 'glm_coding_config_v5';
     const RUNTIME_PAUSE_KEY = 'glm_runtime_paused_v1';
+    // ── 事件日志 ring buffer ──────────────────────────────────────────────
+    const EVENT_LOG_KEY = 'glm_event_log_v1';
+    const EVENT_LOG_MAX = 200;
+    const _eventLog = (() => { try { return JSON.parse(GM_getValue(EVENT_LOG_KEY, '[]')); } catch { return []; } })();
+    function logEvent(type, data) {
+        const entry = { ts: Date.now(), type: type, data: data };
+        _eventLog.push(entry);
+        while (_eventLog.length > EVENT_LOG_MAX) _eventLog.shift();
+        try { GM_setValue(EVENT_LOG_KEY, JSON.stringify(_eventLog)); } catch {}
+    }
+    function getEventLog() { return _eventLog.slice(); }
+    function clearEventLog() { _eventLog.length = 0; try { GM_setValue(EVENT_LOG_KEY, '[]'); } catch {} }
+    function exportEventLog() {
+        const lines = _eventLog.map(e => `[${new Date(e.ts).toISOString()}] ${e.type} ${JSON.stringify(e.data)}`);
+        return lines.join('\n');
+    }
+    // 暴露到全局，可在 DevTools console 调用 dumpEventLog() / clearEventLog()
+    try { unsafeWindow.dumpEventLog = () => { const t = exportEventLog(); console.log(t || '(empty)'); return t; }; } catch {}
+    try { unsafeWindow.clearEventLog = clearEventLog; } catch {}
     const TABS_MAP    = { 1: '连续包月', 2: '连续包季', 3: '连续包年' };
     const PKGS_MAP    = { 1: 'Lite',    2: 'Pro',      3: 'Max'      };
     const DEF = {
@@ -600,7 +624,8 @@
         PACKAGES_PRIORITY : '2,3,1',
         CHECK_INTERVAL    : 80,
         SMART_REFRESH     : true,
-        AUTO_CLOSE_INVALID: false,
+        AUTO_CLOSE_RATE_LIMIT: false,
+        AUTO_CLOSE_INVALID_PAY: false,
         AUTO_CLICK_SUB    : false,
         AUTO_CAPTCHA_CLICK : true,
         AUTO_CAPTCHA_CONFIRM: false,
@@ -1124,9 +1149,14 @@
                     <span style="font-size:14px;color:#555">启用智能刷新（梯度嗅探补货时间）</span>
                 </label>
                 <label style="display:flex;align-items:center;cursor:pointer">
-                    <input type="checkbox" id="glm-aci" ${CFG.AUTO_CLOSE_INVALID ? 'checked' : ''} style="margin-right:8px">
-                    <span style="font-size:14px;color:#555">自动关闭无效支付/限流弹窗（默认关闭）</span>
-                    <span title="默认关闭，需手动开启才会自动关闭。&#10;开启后自动关闭以下弹窗并重试：&#10;1. 接口返回售罄但前端弹出的支付弹窗（二维码支付链接缺参数，扫码也无法付款）&#10;2. 限流弹窗（自动关闭后继续重试）&#10;关闭后遇到异常弹窗会停脚本，需手动处理" style="margin-left:6px;cursor:help;color:#999;font-size:14px;border:1px solid #ccc;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;line-height:1">?</span>
+                    <input type="checkbox" id="glm-acrl" ${CFG.AUTO_CLOSE_RATE_LIMIT ? 'checked' : ''} style="margin-right:8px">
+                    <span style="font-size:14px;color:#555">自动关闭限流弹窗（"购买人数较多"等）</span>
+                    <span title="开启后遇到限流弹窗会自动关闭并重试。&#10;关闭后遇到限流弹窗会停脚本，需手动关闭后继续。" style="margin-left:6px;cursor:help;color:#999;font-size:14px;border:1px solid #ccc;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;line-height:1">?</span>
+                </label>
+                <label style="display:flex;align-items:center;cursor:pointer">
+                    <input type="checkbox" id="glm-acip" ${CFG.AUTO_CLOSE_INVALID_PAY ? 'checked' : ''} style="margin-right:8px">
+                    <span style="font-size:14px;color:#555">自动关闭无效支付弹窗（⚠️ 慎用，默认关闭）</span>
+                    <span title="⚠️ 有效支付弹窗可能混入其中，误关将丢失支付机会。&#10;开启后：接口返回售罄/繁忙时自动关闭弹出的支付弹窗并试下一个。&#10;强烈建议保持关闭，让脚本在支付弹窗出现时停止等你确认。" style="margin-left:6px;cursor:help;color:#999;font-size:14px;border:1px solid #ccc;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;line-height:1">?</span>
                 </label>
                 <label style="display:flex;align-items:center;cursor:pointer">
                     <input type="checkbox" id="glm-acs" ${CFG.AUTO_CLICK_SUB ? 'checked' : ''} style="margin-right:8px">
@@ -1219,7 +1249,8 @@
                 PACKAGES_PRIORITY : p,
                 SMART_REFRESH     : panel.querySelector('#glm-sm').checked,
                 CHECK_INTERVAL    : CFG.CHECK_INTERVAL,
-                AUTO_CLOSE_INVALID: panel.querySelector('#glm-aci').checked,
+                AUTO_CLOSE_RATE_LIMIT: panel.querySelector('#glm-acrl').checked,
+                AUTO_CLOSE_INVALID_PAY: panel.querySelector('#glm-acip').checked,
                 AUTO_CLICK_SUB    : panel.querySelector('#glm-acs').checked,
                 AUTO_CAPTCHA_CLICK: panel.querySelector('#glm-acc').checked,
                 AUTO_CAPTCHA_CONFIRM: panel.querySelector('#glm-acf').checked,
@@ -1356,12 +1387,13 @@
                         setBar('⚠️ API返回200但弹窗显示小飞机（"购买人数较多"），可能是前后端不一致。不自动关闭，请手动确认后关闭弹窗，脚本会继续。', '#ff4d4f');
                         return;
                     }
-                    if (!CFG.AUTO_CLOSE_INVALID) {
+                    if (!CFG.AUTO_CLOSE_RATE_LIMIT) {
                         state = 'DONE';
-                        setBar('Auto-close is disabled. Please check this payment/rate-limit popup manually.', '#d46b08');
+                        setBar('Auto-close rate-limit is disabled. Please check this payment/rate-limit popup manually.', '#d46b08');
                         return;
                     }
                     closeModal(rlw);
+                    logEvent('popup_closed', { type: 'rate_limit_airplane', result: PS.result, code: PS.rawCode });
                     const curName = `${TABS_MAP[tab]}·${PKGS_MAP[pkg]}`;
                     const nextIdx = qIdx + 1;
                     const isLoop = nextIdx >= scanQueue.length;
@@ -1375,11 +1407,12 @@
                     setBar(`${reason}，${isLoop ? '🔄 轮询一圈，从头重试...' : '试下一个...'}`, '#d46b08');
                     return;
                 }
-                if (!CFG.AUTO_CLOSE_INVALID) {
+                if (!CFG.AUTO_CLOSE_RATE_LIMIT) {
                     setBar('⚠️ 限流弹窗（"购买人数较多"），请手动关闭后重试', '#d46b08');
                     return;
                 }
                 closeModal(rlw); taskRLCount++;
+                logEvent('popup_closed', { type: 'rate_limit', count: taskRLCount });
                 if (taskRLCount >= MAX_RL) {
                     if (isGoldenTime()) {
                         setBar('🔥 黄金时间！连续限流但禁止刷新，继续重试！', '#ff4d4f');
@@ -1396,7 +1429,7 @@
             if (isPayDialog()) {
                 const verdict = checkPayDialog();
                 if (verdict === 'close') {
-                    if (!CFG.AUTO_CLOSE_INVALID) {
+                    if (!CFG.AUTO_CLOSE_INVALID_PAY) {
                         state = 'DONE';
                         setBar('⚠️ 检测到异常支付弹窗，请手动确认是否需要扫码！', '#d46b08');
                         return;
@@ -1405,6 +1438,7 @@
                         ? `✈️ 系统繁忙(${PS.rawCode || 555})，关闭弹窗`
                         : `📉 ${TABS_MAP[taskTarget.tab]}·${PKGS_MAP[taskTarget.pkg]} 售罄`;
                     closePayDialog();
+                    logEvent('popup_closed', { type: 'invalid_payment', result: PS.result, code: PS.rawCode });
                     lastCloseReason = reason;
                     const nextIdx = qIdx + 1;
                     const isLoop = nextIdx >= scanQueue.length;
@@ -1415,12 +1449,14 @@
                     return;
                 }
                 if (verdict === 'warn') {
+                    logEvent('popup_detected', { type: 'payment_warn', msg: '前后端不一致' });
                     setBar('⚠️ 弹窗显示小飞机但API未返回繁忙/售罄，前后端不一致。不自动关闭，请手动确认。如果有二维码请扫码支付！', '#ff4d4f');
                     return;
                 }
                 const prices = readDialogPrices();
                 if (everSucceeded && PS.bizId || prices?.any) {
                     state = 'DONE';
+                    logEvent('popup_detected', { type: 'valid_payment', bizId: PS.bizId, hasPrices: !!prices?.any });
                     if (everSucceeded && PS.bizId) showPayAlarm();
                     setBar('💳 <b>支付弹窗已出现！请立即扫码支付！</b> 脚本已停止。', '#16a34a');
                 } else {
