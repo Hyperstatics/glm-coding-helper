@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI):
 
     def _worker_watchdog():
         """监控 worker 进程，崩溃后自动重启"""
-        time.sleep(30)
+        time.sleep(10)
         while not _shutdown.is_set():
             _shutdown.wait(15)
             if _shutdown.is_set():
@@ -481,7 +481,7 @@ async def handle_direct(data: CaptchaRequest):
         await loop.run_in_executor(None, target_q.put, payload)
 
     try:
-        result = await asyncio.wait_for(future, timeout=15.0)
+        result = await asyncio.wait_for(future, timeout=5.0)
         return {"success": True, "result": result}
     except asyncio.TimeoutError:
         with request_lock:
@@ -528,7 +528,7 @@ async def handle_direct_url(data: CaptchaUrlRequest):
         pass
 
     try:
-        result = await asyncio.wait_for(future, timeout=15.0)
+        result = await asyncio.wait_for(future, timeout=5.0)
         return {"success": True, "result": result}
     except asyncio.TimeoutError:
         with request_lock:
@@ -588,7 +588,7 @@ async def handle_batch_direct(data: BatchCaptchaRequest):
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*futures.values(), return_exceptions=True),
-            timeout=30.0,
+            timeout=15.0,
         )
     except asyncio.TimeoutError:
         # 清理超时的future
