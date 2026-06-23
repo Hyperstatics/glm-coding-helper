@@ -657,7 +657,7 @@
     const DEF = {
         TABS_PRIORITY     : '1',
         PACKAGES_PRIORITY : '2,3,1',
-        CHECK_INTERVAL    : 80,
+        CHECK_INTERVAL    : 500,
         SMART_REFRESH     : true,
         AUTO_CLOSE_RATE_LIMIT: false,
         AUTO_CLOSE_INVALID_PAY: false,
@@ -1567,8 +1567,14 @@
         calibrateRushLatency();
         setInterval(tick, CFG.CHECK_INTERVAL);
         const _startDOM = () => {
-            setInterval(forceEnableButtons, 500);
-            new MutationObserver(forceEnableButtons).observe(document.body, {
+            setInterval(forceEnableButtons, 1000);
+            // 300ms debounce 避免 DOM 变更风暴触发连锁回调
+            let _febDebounce = null;
+            const _febDebounced = function () {
+                if (_febDebounce) return;
+                _febDebounce = setTimeout(function () { _febDebounce = null; forceEnableButtons(); }, 300);
+            };
+            new MutationObserver(_febDebounced).observe(document.body, {
                 childList: true, subtree: true,
                 attributes: true, attributeFilter: ['disabled', 'class']
             });
@@ -2460,6 +2466,6 @@
         syncCaptchaChallengeText(challenge);
         tryStartCaptchaDirectSolve(challenge);
     }
-    setInterval(checkCaptchaPrompt, 50);
+    setInterval(checkCaptchaPrompt, 200);
     console.log('[captcha] bridge v2 started | rush=' + RUSH_CFG.enabled + ' | wi=' + getWindowIndex() + ' | target=' + String(RUSH_CFG.targetHour).padStart(2,'0') + ':' + String(RUSH_CFG.targetMin).padStart(2,'0') + ':' + String(RUSH_CFG.targetSec).padStart(2,'0') + '+' + (getWindowIndex() * RUSH_CFG.staggerMs / 1000) + 's');
 })();
