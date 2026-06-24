@@ -601,13 +601,25 @@
     // ── 事件日志 ring buffer ──────────────────────────────────────────────
     const EVENT_LOG_KEY = 'glm_event_log_v1';
     const EVENT_LOG_MAX = 200;
+    const EVENT_LOG_FLUSH_MS = 5000;  // 最多 5s 写一次 GM_setValue
     const _eventLog = (() => { try { return JSON.parse(GM_getValue(EVENT_LOG_KEY, '[]')); } catch { return []; } })();
+    let _logDirty = false;
+    let _logFlushTimer = null;
+    function _flushLog() {
+        if (!_logDirty) return;
+        try { GM_setValue(EVENT_LOG_KEY, JSON.stringify(_eventLog)); } catch {}
+        _logDirty = false;
+        _logFlushTimer = null;
+    }
     function logEvent(type, data) {
         const entry = { ts: Date.now(), type: type, data: data };
         _eventLog.push(entry);
         while (_eventLog.length > EVENT_LOG_MAX) _eventLog.shift();
-        try { GM_setValue(EVENT_LOG_KEY, JSON.stringify(_eventLog)); } catch {}
+        _logDirty = true;
+        if (!_logFlushTimer) _logFlushTimer = setTimeout(_flushLog, EVENT_LOG_FLUSH_MS);
     }
+    // 页面卸载时强制刷盘
+    try { window.addEventListener('beforeunload', _flushLog); } catch {}
     function getEventLog() { return _eventLog.slice(); }
     function clearEventLog() { _eventLog.length = 0; try { GM_setValue(EVENT_LOG_KEY, '[]'); } catch {} }
     function exportEventLog() {
@@ -1567,14 +1579,26 @@
         calibrateRushLatency();
         setInterval(tick, CFG.CHECK_INTERVAL);
         const _startDOM = () => {
-            setInterval(forceEnableButtons, 1000);
-            // 300ms debounce 避免 DOM 变更风暴触发连锁回调
-            let _febDebounce = null;
-            const _febDebounced = function () {
+            setInterval(forceEnableButtons, 2000);
+            // v9.1: disconnect observer during forceEnableButtons to avoid self-trigger loop
+            var _obs;
+            var _febDebounce = null;
+            var _febDebounced = function () {
                 if (_febDebounce) return;
-                _febDebounce = setTimeout(function () { _febDebounce = null; forceEnableButtons(); }, 300);
+                _febDebounce = setTimeout(function () {
+                    _febDebounce = null;
+                    // Only call if there are actually disabled buttons
+                    if (!document.querySelector('.buy-btn[disabled], .buy-btn.is-disabled, .buy-btn.disabled')) return;
+                    if (_obs) _obs.disconnect();
+                    forceEnableButtons();
+                    if (_obs) _obs.observe(document.body, {
+                        childList: true, subtree: true,
+                        attributes: true, attributeFilter: ['disabled', 'class']
+                    });
+                }, 1000);
             };
-            new MutationObserver(_febDebounced).observe(document.body, {
+            _obs = new MutationObserver(_febDebounced);
+            _obs.observe(document.body, {
                 childList: true, subtree: true,
                 attributes: true, attributeFilter: ['disabled', 'class']
             });
