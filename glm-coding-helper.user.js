@@ -424,14 +424,15 @@
     const _oP = JSON.parse;
     JSON.parse = function (t, r) {
         const o = _oP(t, r);
-        try { (function f(x) {
+        try { (function f(x, d) {
             if (!x || typeof x !== 'object') return;
+            if (d > 4) return;  // 只扫描浅层，深层递归浪费 CPU
             if ('isSoldOut' in x && x.isSoldOut === true) x.isSoldOut = false;
             if ('soldOut'   in x && x.soldOut   === true) x.soldOut   = false;
             if ('disabled'  in x && x.disabled  === true && (x.price !== undefined || x.productId || x.title)) x.disabled = false;
             if ('stock'     in x && x.stock     === 0) x.stock = 999;
-            for (const k in x) f(x[k]);
-        })(o); } catch {}
+            for (const k in x) { if (!k.startsWith('__react') && !k.startsWith('__')) f(x[k], d + 1); }
+        })(o, 0); } catch {}
         return o;
     };
     // ── 购买状态（fetch 拦截器 ↔ UI 主循环共享）─────────────────────────────
@@ -587,8 +588,12 @@
     const _dsKey = `glm_ds_${_today}`;
     let _ds = (() => { try { return JSON.parse(localStorage.getItem(_dsKey) || '{}'); } catch { return {}; } })();
     Object.keys(_ds).forEach(k => { if (_ds[k] === 0) _ds[k] = -1; });
-    _flush();
-    function _flush()       { localStorage.setItem(_dsKey, JSON.stringify(_ds)); }
+    let _flushTimer = null;
+    function _flush() {
+        // debounce: 1s 内多次变更只写一次 localStorage
+        if (_flushTimer) return;
+        _flushTimer = setTimeout(function () { _flushTimer = null; localStorage.setItem(_dsKey, JSON.stringify(_ds)); }, 1000);
+    }
     function getS(t, p)     { return _ds[`${t}-${p}`] ?? -1; }
     function setS(t, p, v)  { _ds[`${t}-${p}`] = v; _flush(); }
     if (Object.values(_ds).includes(2)) {
@@ -1579,29 +1584,8 @@
         calibrateRushLatency();
         setInterval(tick, CFG.CHECK_INTERVAL);
         const _startDOM = () => {
-            setInterval(forceEnableButtons, 2000);
-            // v9.1: disconnect observer during forceEnableButtons to avoid self-trigger loop
-            var _obs;
-            var _febDebounce = null;
-            var _febDebounced = function () {
-                if (_febDebounce) return;
-                _febDebounce = setTimeout(function () {
-                    _febDebounce = null;
-                    // Only call if there are actually disabled buttons
-                    if (!document.querySelector('.buy-btn[disabled], .buy-btn.is-disabled, .buy-btn.disabled')) return;
-                    if (_obs) _obs.disconnect();
-                    forceEnableButtons();
-                    if (_obs) _obs.observe(document.body, {
-                        childList: true, subtree: true,
-                        attributes: true, attributeFilter: ['disabled', 'class']
-                    });
-                }, 1000);
-            };
-            _obs = new MutationObserver(_febDebounced);
-            _obs.observe(document.body, {
-                childList: true, subtree: true,
-                attributes: true, attributeFilter: ['disabled', 'class']
-            });
+            // 仅定时器触发，不用 MutationObserver（DOM 树上全量监听开销太大）
+            setInterval(forceEnableButtons, 3000);
         };
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _startDOM);
         else _startDOM();
