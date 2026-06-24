@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
 MODEL_NAME = (
     os.environ.get("CNCAPTCHA_CPU_OCR_MODEL")
     or os.environ.get("GLM_OCR_MODEL")
-    or "PP-OCRv6_tiny_rec"
+    or "PP-OCRv5_server_rec"
 )
 ENGINE = "paddle_dynamic"
 CONSTRAINED_DECODE = True

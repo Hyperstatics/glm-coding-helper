@@ -40,9 +40,7 @@ MAX_RECENT_SHOWN = 20
 BACKEND_SHUTDOWN_TIMEOUT = 30
 CONFIG_PATH = ROOT / "config.json"
 OCR_MODEL_CHOICES = {
-    "极速模式（v6 tiny，推荐）": "PP-OCRv6_tiny_rec",
-    "精准模式（v6 medium）": "PP-OCRv6_medium_rec",
-    "稳定模式（v5 server）": "PP-OCRv5_server_rec",
+    "稳定模式（v5 server，当前环境）": "PP-OCRv5_server_rec",
 }
 
 # 颜色

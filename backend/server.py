@@ -57,7 +57,7 @@ _DEFAULT = {
     "workers": _smart_yolo,
     "ocr_workers": _smart_ocr,
     "port": 8888,
-    "ocr_model": "PP-OCRv6_tiny_rec",
+    "ocr_model": "PP-OCRv5_server_rec",
 }
 
 if CONFIG_PATH.exists():
